@@ -63,13 +63,13 @@ fun AlbumScreen(
             },
         )
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 112.dp),
+            columns = GridCells.Adaptive(minSize = 92.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .navigationBarsPadding(),
-            contentPadding = PaddingValues(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            contentPadding = PaddingValues(start = 6.dp, top = 6.dp, end = 6.dp, bottom = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             itemsIndexed(album.items, key = { _, item -> item.uri.toString() }) { index, item ->
                 MediaTile(item = item, onClick = { onMediaClick(index) })
@@ -84,7 +84,7 @@ private fun MediaTile(item: MediaFile, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(3.dp))
+            .clip(RoundedCornerShape(2.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick),
     ) {

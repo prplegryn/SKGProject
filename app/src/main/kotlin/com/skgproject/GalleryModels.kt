@@ -9,6 +9,7 @@ data class MediaFile(
     val lastModified: Long,
     val size: Long,
     val albumName: String,
+    val thumbnailPath: String? = null,
 ) {
     val isVideo: Boolean = mimeType?.startsWith("video/") == true || name.hasVideoExtension()
     val isImage: Boolean = mimeType?.startsWith("image/") == true || name.hasImageExtension()
@@ -48,4 +49,3 @@ private fun String.extension(): String = substringAfterLast('.', missingDelimite
 private fun String.hasImageExtension(): Boolean = extension() in imageExtensions
 
 private fun String.hasVideoExtension(): Boolean = extension() in videoExtensions
-

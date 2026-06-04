@@ -173,6 +173,9 @@ private fun VideoViewer(
     var duration by remember(item.uri) { mutableLongStateOf(0L) }
     var position by remember(item.uri) { mutableLongStateOf(0L) }
     var buffered by remember(item.uri) { mutableLongStateOf(0L) }
+    var previewSeekPosition by remember(item.uri) { mutableStateOf<Long?>(null) }
+    var screenDragStartPosition by remember(item.uri) { mutableLongStateOf(0L) }
+    var screenDragOffset by remember(item.uri) { mutableStateOf(0f) }
 
     val player = remember(item.uri) {
         ExoPlayer.Builder(context).build().apply {
@@ -236,13 +239,29 @@ private fun VideoViewer(
                     detectTapGestures(onTap = { onToggleControls() })
                 }
                 .pointerInput(duration) {
-                    detectDragGestures { change, dragAmount ->
-                        if (duration > 0L && abs(dragAmount.x) >= abs(dragAmount.y)) {
-                            change.consume()
-                            val delta = ((dragAmount.x / size.width) * 90_000L).roundToLong()
-                            player.seekTo((player.currentPosition + delta).coerceIn(0L, duration))
-                        }
-                    }
+                    detectDragGestures(
+                        onDragStart = {
+                            screenDragStartPosition = previewSeekPosition ?: player.currentPosition
+                            screenDragOffset = 0f
+                        },
+                        onDragEnd = {
+                            previewSeekPosition?.let(player::seekTo)
+                            previewSeekPosition = null
+                            screenDragOffset = 0f
+                        },
+                        onDragCancel = {
+                            previewSeekPosition = null
+                            screenDragOffset = 0f
+                        },
+                        onDrag = { change, dragAmount ->
+                            if (duration > 0L && abs(dragAmount.x) >= abs(dragAmount.y)) {
+                                change.consume()
+                                screenDragOffset += dragAmount.x
+                                val delta = ((screenDragOffset / size.width) * SCREEN_SCRUB_RANGE_MS).roundToLong()
+                                previewSeekPosition = (screenDragStartPosition + delta).coerceIn(0L, duration)
+                            }
+                        },
+                    )
                 },
         )
 
@@ -255,12 +274,16 @@ private fun VideoViewer(
             VideoControls(
                 playing = playing,
                 loop = loop,
-                position = position.coerceAtMost(duration.takeIf { it > 0L } ?: position),
+                position = (previewSeekPosition ?: position).coerceAtMost(duration.takeIf { it > 0L } ?: position),
                 duration = duration,
                 buffered = buffered,
                 onPlayPause = { playing = !playing },
                 onLoopToggle = { loop = !loop },
-                onSeek = { player.seekTo(it) },
+                onSeekPreview = { previewSeekPosition = it },
+                onSeekCommit = {
+                    previewSeekPosition = null
+                    player.seekTo(it)
+                },
             )
         }
     }
@@ -338,7 +361,8 @@ private fun VideoControls(
     buffered: Long,
     onPlayPause: () -> Unit,
     onLoopToggle: () -> Unit,
-    onSeek: (Long) -> Unit,
+    onSeekPreview: (Long) -> Unit,
+    onSeekCommit: (Long) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -351,7 +375,8 @@ private fun VideoControls(
             position = position,
             duration = duration,
             buffered = buffered,
-            onSeek = onSeek,
+            onSeekPreview = onSeekPreview,
+            onSeekCommit = onSeekCommit,
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -388,7 +413,8 @@ private fun ProgressScrubber(
     position: Long,
     duration: Long,
     buffered: Long,
-    onSeek: (Long) -> Unit,
+    onSeekPreview: (Long) -> Unit,
+    onSeekCommit: (Long) -> Unit,
 ) {
     val primary = Color.White
     val secondary = Color.White.copy(alpha = 0.35f)
@@ -399,14 +425,21 @@ private fun ProgressScrubber(
             .fillMaxWidth()
             .height(26.dp)
             .pointerInput(duration) {
+                var lastPreview = 0L
                 detectDragGestures(
                     onDragStart = { offset ->
-                        if (duration > 0L) onSeek((duration * (offset.x / size.width)).roundToLong().coerceIn(0L, duration))
+                        if (duration > 0L) {
+                            lastPreview = (duration * (offset.x / size.width)).roundToLong().coerceIn(0L, duration)
+                            onSeekPreview(lastPreview)
+                        }
                     },
+                    onDragEnd = { if (duration > 0L) onSeekCommit(lastPreview) },
+                    onDragCancel = { if (duration > 0L) onSeekCommit(position) },
                     onDrag = { change, _ ->
                         if (duration > 0L) {
                             change.consume()
-                            onSeek((duration * (change.position.x / size.width)).roundToLong().coerceIn(0L, duration))
+                            lastPreview = (duration * (change.position.x / size.width)).roundToLong().coerceIn(0L, duration)
+                            onSeekPreview(lastPreview)
                         }
                     },
                 )
@@ -479,3 +512,5 @@ private fun Long.formatTime(): String {
         "%02d:%02d".format(minutes, seconds)
     }
 }
+
+private const val SCREEN_SCRUB_RANGE_MS = 120_000L

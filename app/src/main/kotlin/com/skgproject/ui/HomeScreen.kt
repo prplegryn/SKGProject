@@ -158,11 +158,11 @@ fun HomeScreen(
             EmptyHome(error = error, onChangeDirectory = onChangeDirectory)
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 168.dp),
+                columns = GridCells.Adaptive(minSize = 124.dp),
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 28.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(start = 10.dp, top = 8.dp, end = 10.dp, bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(albums, key = { it.uri.toString() }) { album ->
                     AlbumTile(album = album, onClick = { onAlbumClick(album) })
@@ -205,15 +205,14 @@ private fun EmptyHome(error: String?, onChangeDirectory: () -> Unit) {
 private fun AlbumTile(album: Album, onClick: () -> Unit) {
     Column(
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick),
-        verticalArrangement = Arrangement.spacedBy(9.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1.04f)
-                .clip(RoundedCornerShape(8.dp))
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(6.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
             val cover = album.cover
@@ -237,29 +236,14 @@ private fun AlbumTile(album: Album, onClick: () -> Unit) {
                     ),
             )
             if (album.items.any { it.isVideo }) {
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(10.dp),
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.54f),
-                    contentColor = Color.White,
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.VideoLibrary,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .size(17.dp),
-                    )
-                }
+                VideoBadge(modifier = Modifier.align(Alignment.TopEnd))
             }
             Text(
                 text = "${album.items.size}",
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(12.dp),
-                style = MaterialTheme.typography.titleLarge,
+                    .padding(9.dp),
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White,
             )
@@ -270,7 +254,7 @@ private fun AlbumTile(album: Album, onClick: () -> Unit) {
         ) {
             Text(
                 text = album.name,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
@@ -281,8 +265,27 @@ private fun AlbumTile(album: Album, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+@Composable
+private fun VideoBadge(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.padding(7.dp),
+        shape = CircleShape,
+        color = Color.Black.copy(alpha = 0.52f),
+        contentColor = Color.White,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.VideoLibrary,
+            contentDescription = null,
+            modifier = Modifier
+                .padding(6.dp)
+                .size(14.dp),
+        )
     }
 }
 
