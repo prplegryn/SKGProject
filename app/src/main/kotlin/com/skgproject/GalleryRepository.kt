@@ -49,7 +49,7 @@ class GalleryRepository(private val context: Context) {
         val json = JSONObject()
             .put(KEY_VERSION, 1)
             .put(KEY_ROOT_URI, rootUri.toString())
-            .put(KEY_ALBUMS, albums.toJson())
+            .put(KEY_ALBUMS, albums.albumsToJson())
         indexFile.writeText(json.toString())
     }
 
@@ -207,20 +207,20 @@ class GalleryRepository(private val context: Context) {
         }
     }
 
-    private fun List<Album>.toJson(): JSONArray {
+    private fun List<Album>.albumsToJson(): JSONArray {
         val albums = JSONArray()
         forEach { album ->
             albums.put(
                 JSONObject()
                     .put(KEY_NAME, album.name)
                     .put(KEY_URI, album.uri.toString())
-                    .put(KEY_ITEMS, album.items.toJson()),
+                    .put(KEY_ITEMS, album.items.mediaFilesToJson()),
             )
         }
         return albums
     }
 
-    private fun List<MediaFile>.toJson(): JSONArray {
+    private fun List<MediaFile>.mediaFilesToJson(): JSONArray {
         val items = JSONArray()
         forEach { item ->
             items.put(
