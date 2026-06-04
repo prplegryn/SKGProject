@@ -30,12 +30,18 @@ import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -113,6 +119,8 @@ fun HomeScreen(
     onRefresh: () -> Unit,
     onChangeDirectory: () -> Unit,
 ) {
+    var settingsExpanded by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -128,11 +136,31 @@ fun HomeScreen(
                         contentDescription = "刷新",
                     )
                 }
-                IconButton(onClick = onChangeDirectory) {
-                    Icon(
-                        imageVector = Icons.Rounded.Settings,
-                        contentDescription = "更换目录",
-                    )
+                Box {
+                    IconButton(onClick = { settingsExpanded = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Settings,
+                            contentDescription = "设置",
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = settingsExpanded,
+                        onDismissRequest = { settingsExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(text = "更换读取目录") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.FolderOpen,
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                settingsExpanded = false
+                                onChangeDirectory()
+                            },
+                        )
+                    }
                 }
             },
         )
