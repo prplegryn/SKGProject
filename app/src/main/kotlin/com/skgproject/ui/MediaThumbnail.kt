@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -42,7 +44,8 @@ fun MediaThumbnail(
             .build()
     }
     val painter = rememberAsyncImagePainter(model = model)
-    val isReady = painter.state is AsyncImagePainter.State.Success
+    val painterState by painter.state.collectAsState()
+    val isReady = painterState is AsyncImagePainter.State.Success
 
     Box(
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
