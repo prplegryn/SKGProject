@@ -14,8 +14,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -58,13 +56,13 @@ fun SKGProjectApp(viewModel: GalleryViewModel) {
 
             AnimatedVisibility(
                 visible = state.viewer != null,
-                enter = fadeIn(tween(110)) + scaleIn(
-                    animationSpec = tween(220, easing = FastOutSlowInEasing),
-                    initialScale = 0.92f,
+                enter = fadeIn(tween(140)) + scaleIn(
+                    animationSpec = tween(280, easing = FastOutSlowInEasing),
+                    initialScale = 0.82f,
                 ),
                 exit = fadeOut(tween(120)) + scaleOut(
-                    animationSpec = tween(140, easing = FastOutSlowInEasing),
-                    targetScale = 0.98f,
+                    animationSpec = tween(160, easing = FastOutSlowInEasing),
+                    targetScale = 0.92f,
                 ),
             ) {
                 val viewer = state.viewer
@@ -130,10 +128,9 @@ private fun GallerySurface(
 }
 
 private fun pageForward(): ContentTransform =
-    (slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) { width -> width / 4 } + fadeIn(tween(180)))
-        .togetherWith(slideOutHorizontally(tween(180)) { width -> -width / 8 } + fadeOut(tween(120)))
+    (fadeIn(tween(180)) + scaleIn(tween(260, easing = FastOutSlowInEasing), initialScale = 0.92f))
+        .togetherWith(fadeOut(tween(120)) + scaleOut(tween(180, easing = FastOutSlowInEasing), targetScale = 1.04f))
 
 private fun pageBack(): ContentTransform =
-    (slideInHorizontally(tween(220, easing = FastOutSlowInEasing)) { width -> -width / 5 } + fadeIn(tween(160)))
-        .togetherWith(slideOutHorizontally(tween(160)) { width -> width / 5 } + fadeOut(tween(120)))
-
+    (fadeIn(tween(130)) + scaleIn(tween(180, easing = FastOutSlowInEasing), initialScale = 1.02f))
+        .togetherWith(fadeOut(tween(110)) + scaleOut(tween(150, easing = FastOutSlowInEasing), targetScale = 0.94f))

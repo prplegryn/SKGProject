@@ -205,7 +205,9 @@ private fun VideoViewer(
         while (true) {
             val currentDuration = player.duration.takeIf { it > 0L } ?: 0L
             duration = currentDuration
-            position = player.currentPosition.coerceAtLeast(0L)
+            if (previewSeekPosition == null) {
+                position = player.currentPosition.coerceAtLeast(0L)
+            }
             buffered = player.bufferedPosition.coerceAtLeast(0L)
             playing = player.isPlaying || player.playWhenReady
             delay(40)
@@ -228,8 +230,7 @@ private fun VideoViewer(
         liveSeekTo(target)
     }
 
-    fun finishLiveSeek(target: Long?) {
-        target?.let { liveSeekTo(it) }
+    fun finishLiveSeek() {
         previewSeekPosition = null
         if (wasPlayingBeforeScrub) {
             playing = true
@@ -284,7 +285,7 @@ private fun VideoViewer(
                             startLiveSeek(startPosition)
                         },
                         onDragEnd = {
-                            finishLiveSeek(previewSeekPosition)
+                            finishLiveSeek()
                             screenDragOffset = 0f
                         },
                         onDragCancel = {
@@ -319,7 +320,7 @@ private fun VideoViewer(
                 onLoopToggle = { loop = !loop },
                 onSeekStart = { startLiveSeek(it) },
                 onSeekMove = { liveSeekTo(it) },
-                onSeekEnd = { finishLiveSeek(it) },
+                onSeekEnd = { finishLiveSeek() },
                 onSeekCancel = { cancelLiveSeek() },
             )
         }
@@ -400,7 +401,7 @@ private fun VideoControls(
     onLoopToggle: () -> Unit,
     onSeekStart: (Long) -> Unit,
     onSeekMove: (Long) -> Unit,
-    onSeekEnd: (Long) -> Unit,
+    onSeekEnd: () -> Unit,
     onSeekCancel: () -> Unit,
 ) {
     Column(
@@ -456,7 +457,7 @@ private fun ProgressScrubber(
     buffered: Long,
     onSeekStart: (Long) -> Unit,
     onSeekMove: (Long) -> Unit,
-    onSeekEnd: (Long) -> Unit,
+    onSeekEnd: () -> Unit,
     onSeekCancel: () -> Unit,
 ) {
     val primary = Color.White
@@ -468,21 +469,20 @@ private fun ProgressScrubber(
             .fillMaxWidth()
             .height(26.dp)
             .pointerInput(duration) {
-                var lastTarget = position
                 detectDragGestures(
                     onDragStart = { offset ->
                         if (duration > 0L) {
-                            lastTarget = (duration * (offset.x / size.width)).roundToLong().coerceIn(0L, duration)
-                            onSeekStart(lastTarget)
+                            val target = (duration * (offset.x / size.width)).roundToLong().coerceIn(0L, duration)
+                            onSeekStart(target)
                         }
                     },
-                    onDragEnd = { if (duration > 0L) onSeekEnd(lastTarget) },
+                    onDragEnd = { if (duration > 0L) onSeekEnd() },
                     onDragCancel = { onSeekCancel() },
                     onDrag = { change, _ ->
                         if (duration > 0L) {
                             change.consume()
-                            lastTarget = (duration * (change.position.x / size.width)).roundToLong().coerceIn(0L, duration)
-                            onSeekMove(lastTarget)
+                            val target = (duration * (change.position.x / size.width)).roundToLong().coerceIn(0L, duration)
+                            onSeekMove(target)
                         }
                     },
                 )
@@ -556,4 +556,4 @@ private fun Long.formatTime(): String {
     }
 }
 
-private const val SCREEN_SCRUB_RANGE_MS = 3_000L
+private const val SCREEN_SCRUB_RANGE_MS = 5_000L

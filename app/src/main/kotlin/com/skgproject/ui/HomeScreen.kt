@@ -44,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -126,44 +127,51 @@ fun HomeScreen(
             .fillMaxSize()
             .statusBarsPadding(),
     ) {
-        GalleryTopBar(
-            title = "SKGProject",
-            subtitle = "${albums.size} 个相册",
-            actions = {
-                IconButton(onClick = onRefresh) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                IconButton(onClick = { settingsExpanded = true }) {
                     Icon(
-                        imageVector = Icons.Rounded.Refresh,
-                        contentDescription = "刷新",
+                        imageVector = Icons.Rounded.Settings,
+                        contentDescription = "设置",
                     )
                 }
-                Box {
-                    IconButton(onClick = { settingsExpanded = true }) {
-                        Icon(
-                            imageVector = Icons.Rounded.Settings,
-                            contentDescription = "设置",
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = settingsExpanded,
-                        onDismissRequest = { settingsExpanded = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(text = "更换读取目录") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.FolderOpen,
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                settingsExpanded = false
-                                onChangeDirectory()
-                            },
-                        )
-                    }
+                DropdownMenu(
+                    expanded = settingsExpanded,
+                    onDismissRequest = { settingsExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(text = "刷新索引") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            settingsExpanded = false
+                            onRefresh()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(text = "更换读取目录") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.FolderOpen,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            settingsExpanded = false
+                            onChangeDirectory()
+                        },
+                    )
                 }
-            },
-        )
+            }
+        }
 
         AnimatedVisibility(visible = isLoading) {
             Row(
@@ -186,11 +194,11 @@ fun HomeScreen(
             EmptyHome(error = error, onChangeDirectory = onChangeDirectory)
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 124.dp),
+                columns = GridCells.Fixed(3),
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 10.dp, top = 8.dp, end = 10.dp, bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(start = 7.dp, top = 3.dp, end = 7.dp, bottom = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 items(albums, key = { it.uri.toString() }) { album ->
                     AlbumTile(album = album, onClick = { onAlbumClick(album) })
@@ -231,70 +239,73 @@ private fun EmptyHome(error: String?, onChangeDirectory: () -> Unit) {
 
 @Composable
 private fun AlbumTile(album: Album, onClick: () -> Unit) {
-    Column(
+    Box(
         modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(2f / 3f)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick),
-        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-        ) {
-            val cover = album.cover
-            if (cover != null) {
-                MediaThumbnail(
-                    item = cover,
-                    contentDescription = album.name,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0.58f to Color.Transparent,
-                                1f to Color.Black.copy(alpha = 0.48f),
-                            ),
-                        ),
-                    ),
-            )
-            if (album.items.any { it.isVideo }) {
-                VideoBadge(modifier = Modifier.align(Alignment.TopEnd))
-            }
-            Text(
-                text = "${album.items.size}",
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(9.dp),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
+        val cover = album.cover
+        if (cover != null) {
+            MediaThumbnail(
+                item = cover,
+                contentDescription = album.name,
+                modifier = Modifier.fillMaxSize(),
             )
         }
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.50f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.54f),
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(76.dp)
+                .blur(18.dp)
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.55f to Color.Black.copy(alpha = 0.36f),
+                        1f to Color.Black.copy(alpha = 0.70f),
+                    ),
+                ),
+        )
         Column(
-            modifier = Modifier.padding(horizontal = 2.dp),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 text = album.name,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
+                color = Color.White,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = mediaSummary(album),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White.copy(alpha = 0.76f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (album.items.any { it.isVideo }) {
+            VideoBadge(modifier = Modifier.align(Alignment.TopEnd))
         }
     }
 }
