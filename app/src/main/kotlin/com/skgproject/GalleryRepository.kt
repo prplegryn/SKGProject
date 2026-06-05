@@ -3,6 +3,7 @@ package com.skgproject
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color as AndroidColor
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
@@ -33,10 +34,12 @@ class GalleryRepository(private val context: Context) {
 
     suspend fun scan(rootUri: Uri): List<Album> = withContext(Dispatchers.IO) {
         val root = DocumentFile.fromTreeUri(context, rootUri) ?: return@withContext emptyList()
+        val savedSettings = loadAlbumSettings(rootUri)
         val albums = root.listFiles()
             .asSequence()
             .filter { it.isDirectory && it.canRead() }
             .mapNotNull { directory -> directory.toAlbumOrNull() }
+            .map { album -> album.withSettings(savedSettings[album.uri.toString()]) }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
             .toList()
 
@@ -74,6 +77,38 @@ class GalleryRepository(private val context: Context) {
 
         target.takeIf { it.exists() && it.length() > 0L }?.let {
             item.copy(thumbnailPath = it.absolutePath)
+        }
+    }
+
+    suspend fun mediaFileForPickedUri(uri: Uri, albumName: String): MediaFile? = withContext(Dispatchers.IO) {
+        val document = DocumentFile.fromSingleUri(context, uri)
+        val fileName = document
+            ?.name
+            ?.takeIf { it.isNotBlank() }
+            ?: uri.lastPathSegment
+            ?: "Selected media"
+        val media = MediaFile(
+            uri = uri,
+            name = fileName,
+            mimeType = context.contentResolver.getType(uri) ?: document?.type,
+            lastModified = document?.lastModified()?.takeIf { it > 0L } ?: 0L,
+            size = document?.length()?.takeIf { it > 0L } ?: 0L,
+            albumName = albumName,
+        )
+        media.takeIf { it.isImage || it.isVideo }
+    }
+
+    suspend fun extractAlbumSurfaceColor(item: MediaFile): Long? = withContext(Dispatchers.IO) {
+        val bitmap = item.thumbnailPath
+            ?.let(::File)
+            ?.takeIf { it.exists() && it.length() > 0L }
+            ?.let { BitmapFactory.decodeFile(it.absolutePath) }
+            ?: if (item.isVideo) createVideoThumbnail(item.uri) else createImageThumbnail(item.uri)
+
+        bitmap?.let { decoded ->
+            val color = dominantSurfaceColor(decoded)
+            decoded.recycle()
+            color
         }
     }
 
@@ -171,6 +206,80 @@ class GalleryRepository(private val context: Context) {
         return sample
     }
 
+    private fun dominantSurfaceColor(bitmap: Bitmap): Long {
+        val step = (bitmap.width.coerceAtLeast(bitmap.height) / COLOR_SAMPLE_GRID).coerceAtLeast(1)
+        var red = 0L
+        var green = 0L
+        var blue = 0L
+        var count = 0L
+
+        var y = step / 2
+        while (y < bitmap.height) {
+            var x = step / 2
+            while (x < bitmap.width) {
+                val pixel = bitmap.getPixel(x, y)
+                if (AndroidColor.alpha(pixel) > 32) {
+                    red += AndroidColor.red(pixel)
+                    green += AndroidColor.green(pixel)
+                    blue += AndroidColor.blue(pixel)
+                    count++
+                }
+                x += step
+            }
+            y += step
+        }
+
+        if (count == 0L) return DEFAULT_ALBUM_SURFACE_COLOR
+
+        val average = AndroidColor.rgb(
+            (red / count).toInt(),
+            (green / count).toInt(),
+            (blue / count).toInt(),
+        )
+        val hsv = FloatArray(3)
+        AndroidColor.colorToHSV(average, hsv)
+        hsv[1] = (hsv[1] * 0.42f).coerceIn(0.08f, 0.34f)
+        hsv[2] = (hsv[2] * 0.32f).coerceIn(0.09f, 0.24f)
+        return AndroidColor.HSVToColor(hsv).toUnsignedLong()
+    }
+
+    private fun Int.toUnsignedLong(): Long = toLong() and 0xffffffffL
+
+    private fun loadAlbumSettings(rootUri: Uri): Map<String, AlbumSettings> {
+        if (!indexFile.exists()) return emptyMap()
+
+        return runCatching {
+            val json = JSONObject(indexFile.readText())
+            if (json.optString(KEY_ROOT_URI) != rootUri.toString()) return@runCatching emptyMap()
+
+            val albums = json.getJSONArray(KEY_ALBUMS)
+            buildMap {
+                for (index in 0 until albums.length()) {
+                    val albumJson = albums.getJSONObject(index)
+                    put(
+                        albumJson.getString(KEY_URI),
+                        AlbumSettings(
+                            backgroundMedia = albumJson.optJSONObject(KEY_BACKGROUND_MEDIA)?.toMediaFile(),
+                            homeCoverMedia = albumJson.optJSONObject(KEY_HOME_COVER_MEDIA)?.toMediaFile(),
+                            backgroundColor = albumJson.optLongOrNull(KEY_BACKGROUND_COLOR),
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun Album.withSettings(settings: AlbumSettings?): Album =
+        if (settings == null) {
+            this
+        } else {
+            copy(
+                backgroundMedia = settings.backgroundMedia?.copy(albumName = name),
+                homeCoverMedia = settings.homeCoverMedia?.copy(albumName = name),
+                backgroundColor = settings.backgroundColor,
+            )
+        }
+
     private fun JSONArray.toAlbums(): List<Album> = buildList {
         for (index in 0 until length()) {
             val albumJson = getJSONObject(index)
@@ -181,6 +290,9 @@ class GalleryRepository(private val context: Context) {
                         name = albumJson.getString(KEY_NAME),
                         uri = Uri.parse(albumJson.getString(KEY_URI)),
                         items = items,
+                        backgroundMedia = albumJson.optJSONObject(KEY_BACKGROUND_MEDIA)?.toMediaFile(),
+                        homeCoverMedia = albumJson.optJSONObject(KEY_HOME_COVER_MEDIA)?.toMediaFile(),
+                        backgroundColor = albumJson.optLongOrNull(KEY_BACKGROUND_COLOR),
                     ),
                 )
             }
@@ -189,22 +301,23 @@ class GalleryRepository(private val context: Context) {
 
     private fun JSONArray.toMediaFiles(): List<MediaFile> = buildList {
         for (index in 0 until length()) {
-            val itemJson = getJSONObject(index)
-            val thumbnailPath = itemJson.optString(KEY_THUMBNAIL_PATH).takeIf { path ->
-                path.isNotBlank() && File(path).exists()
-            }
-            add(
-                MediaFile(
-                    uri = Uri.parse(itemJson.getString(KEY_URI)),
-                    name = itemJson.getString(KEY_NAME),
-                    mimeType = itemJson.optString(KEY_MIME_TYPE).takeIf { it.isNotBlank() },
-                    lastModified = itemJson.optLong(KEY_LAST_MODIFIED),
-                    size = itemJson.optLong(KEY_SIZE),
-                    albumName = itemJson.getString(KEY_ALBUM_NAME),
-                    thumbnailPath = thumbnailPath,
-                ),
-            )
+            add(getJSONObject(index).toMediaFile())
         }
+    }
+
+    private fun JSONObject.toMediaFile(): MediaFile {
+        val thumbnailPath = optString(KEY_THUMBNAIL_PATH).takeIf { path ->
+            path.isNotBlank() && File(path).exists()
+        }
+        return MediaFile(
+            uri = Uri.parse(getString(KEY_URI)),
+            name = getString(KEY_NAME),
+            mimeType = optString(KEY_MIME_TYPE).takeIf { it.isNotBlank() },
+            lastModified = optLong(KEY_LAST_MODIFIED),
+            size = optLong(KEY_SIZE),
+            albumName = getString(KEY_ALBUM_NAME),
+            thumbnailPath = thumbnailPath,
+        )
     }
 
     private fun List<Album>.albumsToJson(): JSONArray {
@@ -214,28 +327,41 @@ class GalleryRepository(private val context: Context) {
                 JSONObject()
                     .put(KEY_NAME, album.name)
                     .put(KEY_URI, album.uri.toString())
+                    .put(KEY_BACKGROUND_MEDIA, album.backgroundMedia?.toJson() ?: JSONObject.NULL)
+                    .put(KEY_HOME_COVER_MEDIA, album.homeCoverMedia?.toJson() ?: JSONObject.NULL)
+                    .put(KEY_BACKGROUND_COLOR, album.backgroundColor ?: JSONObject.NULL)
                     .put(KEY_ITEMS, album.items.mediaFilesToJson()),
             )
         }
         return albums
     }
 
+    private fun JSONObject.optLongOrNull(key: String): Long? =
+        if (has(key) && !isNull(key)) optLong(key) else null
+
+    private data class AlbumSettings(
+        val backgroundMedia: MediaFile?,
+        val homeCoverMedia: MediaFile?,
+        val backgroundColor: Long?,
+    )
+
     private fun List<MediaFile>.mediaFilesToJson(): JSONArray {
         val items = JSONArray()
         forEach { item ->
-            items.put(
-                JSONObject()
-                    .put(KEY_URI, item.uri.toString())
-                    .put(KEY_NAME, item.name)
-                    .put(KEY_MIME_TYPE, item.mimeType ?: "")
-                    .put(KEY_LAST_MODIFIED, item.lastModified)
-                    .put(KEY_SIZE, item.size)
-                    .put(KEY_ALBUM_NAME, item.albumName)
-                    .put(KEY_THUMBNAIL_PATH, item.thumbnailPath ?: ""),
-            )
+            items.put(item.toJson())
         }
         return items
     }
+
+    private fun MediaFile.toJson(): JSONObject =
+        JSONObject()
+            .put(KEY_URI, uri.toString())
+            .put(KEY_NAME, name)
+            .put(KEY_MIME_TYPE, mimeType ?: "")
+            .put(KEY_LAST_MODIFIED, lastModified)
+            .put(KEY_SIZE, size)
+            .put(KEY_ALBUM_NAME, albumName)
+            .put(KEY_THUMBNAIL_PATH, thumbnailPath ?: "")
 
     private fun String.sha256(): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(toByteArray())
@@ -248,11 +374,16 @@ class GalleryRepository(private val context: Context) {
         const val THUMBNAIL_SIZE = 512
         const val JPEG_QUALITY = 82
         const val VIDEO_FRAME_MICROS = 650_000L
+        const val COLOR_SAMPLE_GRID = 28
+        const val DEFAULT_ALBUM_SURFACE_COLOR = 0xff151310L
 
         const val KEY_VERSION = "version"
         const val KEY_ROOT_URI = "rootUri"
         const val KEY_ALBUMS = "albums"
         const val KEY_ITEMS = "items"
+        const val KEY_BACKGROUND_MEDIA = "backgroundMedia"
+        const val KEY_HOME_COVER_MEDIA = "homeCoverMedia"
+        const val KEY_BACKGROUND_COLOR = "backgroundColor"
         const val KEY_URI = "uri"
         const val KEY_NAME = "name"
         const val KEY_MIME_TYPE = "mimeType"

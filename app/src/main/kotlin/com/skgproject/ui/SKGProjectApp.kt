@@ -21,18 +21,35 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.skgproject.Album
 import com.skgproject.GalleryUiState
 import com.skgproject.GalleryViewModel
 
 @Composable
 fun SKGProjectApp(viewModel: GalleryViewModel) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var pendingAlbumPick by remember { mutableStateOf<AlbumPickRequest?>(null) }
     val directoryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
     ) { uri: Uri? ->
         uri?.let(viewModel::setRootDirectory)
+    }
+    val mediaDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        val request = pendingAlbumPick
+        pendingAlbumPick = null
+        if (uri != null && request != null) {
+            when (request.target) {
+                AlbumPickTarget.Background -> viewModel.setAlbumBackground(request.album, uri)
+                AlbumPickTarget.HomeCover -> viewModel.setAlbumHomeCover(request.album, uri)
+            }
+        }
     }
 
     SKGProjectTheme {
@@ -52,6 +69,14 @@ fun SKGProjectApp(viewModel: GalleryViewModel) {
                 onAlbumClick = viewModel::openAlbum,
                 onBackToHome = viewModel::closeAlbum,
                 onMediaClick = viewModel::openViewer,
+                onPickAlbumBackground = { album ->
+                    pendingAlbumPick = AlbumPickRequest(album, AlbumPickTarget.Background)
+                    mediaDocumentLauncher.launch(MEDIA_PICK_MIME_TYPES)
+                },
+                onPickAlbumHomeCover = { album ->
+                    pendingAlbumPick = AlbumPickRequest(album, AlbumPickTarget.HomeCover)
+                    mediaDocumentLauncher.launch(MEDIA_PICK_MIME_TYPES)
+                },
             )
 
             AnimatedVisibility(
@@ -96,6 +121,8 @@ private fun GallerySurface(
     onAlbumClick: (com.skgproject.Album) -> Unit,
     onBackToHome: () -> Unit,
     onMediaClick: (com.skgproject.Album, Int) -> Unit,
+    onPickAlbumBackground: (com.skgproject.Album) -> Unit,
+    onPickAlbumHomeCover: (com.skgproject.Album) -> Unit,
 ) {
     AnimatedContent(
         targetState = state.selectedAlbum,
@@ -122,10 +149,24 @@ private fun GallerySurface(
                 album = selectedAlbum,
                 onBack = onBackToHome,
                 onMediaClick = { index -> onMediaClick(selectedAlbum, index) },
+                onPickBackground = { onPickAlbumBackground(selectedAlbum) },
+                onPickHomeCover = { onPickAlbumHomeCover(selectedAlbum) },
             )
         }
     }
 }
+
+private data class AlbumPickRequest(
+    val album: Album,
+    val target: AlbumPickTarget,
+)
+
+private enum class AlbumPickTarget {
+    Background,
+    HomeCover,
+}
+
+private val MEDIA_PICK_MIME_TYPES = arrayOf("image/*", "video/*")
 
 private fun pageForward(): ContentTransform =
     (fadeIn(tween(180)) + scaleIn(tween(260, easing = FastOutSlowInEasing), initialScale = 0.92f))

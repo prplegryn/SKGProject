@@ -69,6 +69,48 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _uiState.update { it.copy(viewer = ViewerState(album = album, index = index)) }
     }
 
+    fun setAlbumBackground(album: Album, uri: Uri) {
+        val rootUri = _uiState.value.rootUri ?: return
+        persistReadPermission(uri)
+        viewModelScope.launch {
+            val media = repository.mediaFileForPickedUri(uri, album.name) ?: return@launch
+            val mediaWithThumbnail = repository.ensureThumbnail(media) ?: media
+            val surfaceColor = repository.extractAlbumSurfaceColor(mediaWithThumbnail)
+            if (_uiState.value.rootUri != rootUri) return@launch
+            updateAlbum(album.uri) {
+                it.copy(
+                    backgroundMedia = mediaWithThumbnail,
+                    backgroundColor = surfaceColor ?: it.backgroundColor,
+                )
+            }
+            repository.saveIndex(rootUri, _uiState.value.albums)
+        }
+    }
+
+    fun setAlbumHomeCover(album: Album, uri: Uri) {
+        val rootUri = _uiState.value.rootUri ?: return
+        persistReadPermission(uri)
+        viewModelScope.launch {
+            val media = repository.mediaFileForPickedUri(uri, album.name) ?: return@launch
+            val mediaWithThumbnail = repository.ensureThumbnail(media) ?: media
+            if (_uiState.value.rootUri != rootUri) return@launch
+            updateAlbum(album.uri) {
+                it.copy(homeCoverMedia = mediaWithThumbnail)
+            }
+            repository.saveIndex(rootUri, _uiState.value.albums)
+        }
+    }
+
+    private fun persistReadPermission(uri: Uri) {
+        val context = getApplication<Application>()
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }
+    }
+
     fun showNext() {
         val viewer = _uiState.value.viewer ?: return
         val nextIndex = (viewer.index + 1).coerceAtMost(viewer.album.items.lastIndex)
@@ -204,6 +246,26 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             selectedAlbum = updatedSelected,
             viewer = updatedViewer,
         )
+    }
+
+    private fun updateAlbum(albumUri: Uri, transform: (Album) -> Album) {
+        _uiState.update { state ->
+            val updatedAlbums = state.albums.map { album ->
+                if (album.uri == albumUri) transform(album) else album
+            }
+            val updatedSelected = state.selectedAlbum?.let { selected ->
+                updatedAlbums.firstOrNull { it.uri == selected.uri }
+            }
+            val updatedViewer = state.viewer?.let { current ->
+                val updatedAlbum = updatedAlbums.firstOrNull { it.uri == current.album.uri } ?: current.album
+                current.copy(album = updatedAlbum)
+            }
+            state.copy(
+                albums = updatedAlbums,
+                selectedAlbum = updatedSelected,
+                viewer = updatedViewer,
+            )
+        }
     }
 
     private fun Album.withGeneratedThumbnails(generated: Map<Uri, MediaFile>): Album =

@@ -19,8 +19,15 @@ data class Album(
     val name: String,
     val uri: Uri,
     val items: List<MediaFile>,
+    val backgroundMedia: MediaFile? = null,
+    val homeCoverMedia: MediaFile? = null,
+    val backgroundColor: Long? = null,
 ) {
-    val cover: MediaFile? = items.firstOrNull()
+    val cover: MediaFile?
+        get() = homeCoverMedia ?: items.firstOrNull()
+
+    val background: MediaFile?
+        get() = backgroundMedia ?: cover
 }
 
 data class ViewerState(
