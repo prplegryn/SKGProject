@@ -1,15 +1,12 @@
 package com.skgproject.ui
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.media.MediaMetadataRetriever
-import android.net.Uri
+import android.os.SystemClock
 import android.view.ViewGroup
+import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -43,17 +40,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -64,16 +58,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.ScrubbingModeParameters
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import com.skgproject.MediaFile
 import com.skgproject.ViewerState
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
@@ -173,6 +168,7 @@ private fun ZoomableImage(
 }
 
 @Composable
+@OptIn(UnstableApi::class)
 private fun VideoViewer(
     item: MediaFile,
     controlsVisible: Boolean,
@@ -188,14 +184,18 @@ private fun VideoViewer(
     var screenDragStartPosition by remember(item.uri) { mutableLongStateOf(0L) }
     var screenDragOffset by remember(item.uri) { mutableStateOf(0f) }
     var wasPlayingBeforeScrub by remember(item.uri) { mutableStateOf(false) }
+    var isScrubbing by remember(item.uri) { mutableStateOf(false) }
     var finalSeekPosition by remember(item.uri) { mutableLongStateOf(0L) }
-    val frameCache = remember(item.uri) { mutableStateMapOf<Long, Bitmap>() }
-    val requestedFrameBuckets = remember(item.uri) { mutableSetOf<Long>() }
-    val previewScope = rememberCoroutineScope()
+    var pendingSeekPosition by remember(item.uri) { mutableLongStateOf(NO_PENDING_SEEK) }
+    var lastSentSeekPosition by remember(item.uri) { mutableLongStateOf(NO_PENDING_SEEK) }
+    var lastSeekDispatchTime by remember(item.uri) { mutableLongStateOf(0L) }
 
     val player = remember(item.uri) {
-        ExoPlayer.Builder(context).build().apply {
+        val renderersFactory = DefaultRenderersFactory(context)
+            .forceEnableMediaCodecAsynchronousQueueing()
+        ExoPlayer.Builder(context, renderersFactory).build().apply {
             setMediaItem(MediaItem.fromUri(item.uri))
+            setScrubbingModeParameters(ScrubbingModeParameters.DEFAULT)
             playWhenReady = true
             repeatMode = Player.REPEAT_MODE_OFF
             prepare()
@@ -208,50 +208,8 @@ private fun VideoViewer(
         }
     }
 
-    DisposableEffect(item.uri) {
-        onDispose {
-            frameCache.values.forEach { it.recycle() }
-            frameCache.clear()
-            requestedFrameBuckets.clear()
-        }
-    }
-
-    fun requestPreviewFrame(target: Long) {
-        if (target < 0L) return
-        val bucket = target.frameBucket()
-        if (frameCache.containsKey(bucket) || !requestedFrameBuckets.add(bucket)) return
-
-        previewScope.launch {
-            val bitmap = withContext(Dispatchers.IO) {
-                extractVideoFrame(context, item.uri, bucket)
-            }
-            if (bitmap != null) {
-                if (frameCache.size >= MAX_PREVIEW_FRAMES) {
-                    val keyToRemove = frameCache.keys.maxByOrNull { abs(it - bucket) }
-                    keyToRemove?.let {
-                        frameCache.remove(it)?.recycle()
-                        requestedFrameBuckets.remove(it)
-                    }
-                }
-                frameCache[bucket] = bitmap
-            } else {
-                requestedFrameBuckets.remove(bucket)
-            }
-        }
-    }
-
-    val previewBitmap = previewSeekPosition?.let { target ->
-        frameCache.entries.minByOrNull { abs(it.key - target) }?.value
-    }
-
     LaunchedEffect(player, loop) {
         player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-    }
-
-    LaunchedEffect(item.uri, duration) {
-        if (duration > 0L) {
-            requestPreviewFrame(player.currentPosition.coerceAtLeast(0L))
-        }
     }
 
     LaunchedEffect(player, playing) {
@@ -271,42 +229,77 @@ private fun VideoViewer(
         }
     }
 
-    fun liveSeekTo(target: Long) {
+    fun pushPendingSeekToPlayer(force: Boolean = false) {
+        val target = pendingSeekPosition
+        if (target == NO_PENDING_SEEK) return
+
+        val now = SystemClock.uptimeMillis()
+        val distance = if (lastSentSeekPosition == NO_PENDING_SEEK) {
+            Long.MAX_VALUE
+        } else {
+            abs(target - lastSentSeekPosition)
+        }
+        if (force || now - lastSeekDispatchTime >= LIVE_SEEK_DISPATCH_MS || distance >= LIVE_SEEK_MIN_DISTANCE_MS) {
+            player.seekTo(target)
+            lastSentSeekPosition = target
+            lastSeekDispatchTime = now
+        }
+    }
+
+    LaunchedEffect(player, isScrubbing) {
+        while (isScrubbing) {
+            pushPendingSeekToPlayer()
+            delay(LIVE_SEEK_DISPATCH_MS)
+        }
+    }
+
+    fun liveSeekTo(target: Long, forcePlayerSeek: Boolean = false) {
         if (duration <= 0L) return
         val nextPosition = target.coerceIn(0L, duration)
         previewSeekPosition = nextPosition
         finalSeekPosition = nextPosition
         position = nextPosition
-        requestPreviewFrame(nextPosition)
-        player.seekTo(nextPosition)
+        pendingSeekPosition = nextPosition
+        pushPendingSeekToPlayer(forcePlayerSeek)
     }
 
     fun startLiveSeek(target: Long) {
         if (duration <= 0L) return
-        wasPlayingBeforeScrub = player.isPlaying || player.playWhenReady
-        player.pause()
-        playing = false
-        liveSeekTo(target)
+        if (!isScrubbing) {
+            wasPlayingBeforeScrub = player.isPlaying || player.playWhenReady
+            player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+            player.setScrubbingModeEnabled(true)
+            isScrubbing = true
+            lastSentSeekPosition = NO_PENDING_SEEK
+            lastSeekDispatchTime = 0L
+        }
+        liveSeekTo(target, forcePlayerSeek = true)
     }
 
     fun finishLiveSeek() {
-        player.seekTo(finalSeekPosition.coerceIn(0L, duration.takeIf { it > 0L } ?: finalSeekPosition))
+        val safeDuration = duration.takeIf { it > 0L } ?: finalSeekPosition
+        val target = finalSeekPosition.coerceIn(0L, safeDuration)
+        pendingSeekPosition = target
+        player.setSeekParameters(SeekParameters.EXACT)
+        player.seekTo(target)
+        lastSentSeekPosition = target
+        lastSeekDispatchTime = SystemClock.uptimeMillis()
+        isScrubbing = false
+        player.setScrubbingModeEnabled(false)
         previewSeekPosition = null
-        if (wasPlayingBeforeScrub) {
-            playing = true
-            player.play()
-        } else {
-            playing = false
-            player.pause()
-        }
+        pendingSeekPosition = NO_PENDING_SEEK
+        player.playWhenReady = wasPlayingBeforeScrub
+        playing = wasPlayingBeforeScrub
     }
 
     fun cancelLiveSeek() {
+        isScrubbing = false
+        player.setScrubbingModeEnabled(false)
+        player.setSeekParameters(SeekParameters.DEFAULT)
         previewSeekPosition = null
-        if (wasPlayingBeforeScrub) {
-            playing = true
-            player.play()
-        }
+        pendingSeekPosition = NO_PENDING_SEEK
+        player.playWhenReady = wasPlayingBeforeScrub
+        playing = wasPlayingBeforeScrub
     }
 
     Box(
@@ -363,17 +356,6 @@ private fun VideoViewer(
                     )
                 },
         )
-
-        if (previewSeekPosition != null && previewBitmap != null) {
-            Image(
-                bitmap = previewBitmap.asImageBitmap(),
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black),
-                contentScale = ContentScale.Fit,
-            )
-        }
 
         AnimatedVisibility(
             visible = controlsVisible,
@@ -627,33 +609,7 @@ private fun Long.formatTime(): String {
     }
 }
 
-private fun Long.frameBucket(): Long = (this / PREVIEW_FRAME_STEP_MS) * PREVIEW_FRAME_STEP_MS
-
-private fun extractVideoFrame(context: Context, uri: Uri, positionMs: Long): Bitmap? {
-    val retriever = MediaMetadataRetriever()
-    return runCatching {
-        retriever.setDataSource(context, uri)
-        retriever
-            .getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
-            ?.scaledDownTo(PREVIEW_FRAME_MAX_SIDE)
-    }.getOrNull().also {
-        runCatching { retriever.release() }
-    }
-}
-
-private fun Bitmap.scaledDownTo(maxSide: Int): Bitmap {
-    val largest = width.coerceAtLeast(height)
-    if (largest <= maxSide) return this
-
-    val scale = maxSide.toFloat() / largest.toFloat()
-    val targetWidth = (width * scale).roundToLong().toInt().coerceAtLeast(1)
-    val targetHeight = (height * scale).roundToLong().toInt().coerceAtLeast(1)
-    val scaled = Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true)
-    if (scaled !== this) recycle()
-    return scaled
-}
-
 private const val SCREEN_SCRUB_RANGE_MS = 5_000L
-private const val PREVIEW_FRAME_STEP_MS = 160L
-private const val PREVIEW_FRAME_MAX_SIDE = 720
-private const val MAX_PREVIEW_FRAMES = 36
+private const val LIVE_SEEK_DISPATCH_MS = 16L
+private const val LIVE_SEEK_MIN_DISTANCE_MS = 24L
+private const val NO_PENDING_SEEK = -1L
