@@ -1,5 +1,7 @@
 package com.skgproject.ui
 
+import android.content.Context
+import android.graphics.Color as AndroidColor
 import android.os.SystemClock
 import android.view.ViewGroup
 import androidx.annotation.OptIn
@@ -28,6 +30,8 @@ import androidx.compose.material.icons.rounded.AllInclusive
 import androidx.compose.material.icons.rounded.ArrowBackIosNew
 import androidx.compose.material.icons.rounded.ArrowForwardIos
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
@@ -175,8 +179,15 @@ private fun VideoViewer(
     onToggleControls: () -> Unit,
 ) {
     val context = LocalContext.current
+    val videoPrefs = remember(context) {
+        context.getSharedPreferences(VIDEO_PREFS_NAME, Context.MODE_PRIVATE)
+    }
     var loop by remember(item.uri) { mutableStateOf(false) }
     var playing by remember(item.uri) { mutableStateOf(true) }
+    var fillScreen by remember {
+        mutableStateOf(videoPrefs.getBoolean(KEY_VIDEO_FILL_SCREEN, false))
+    }
+    var firstFrameRendered by remember(item.uri) { mutableStateOf(false) }
     var duration by remember(item.uri) { mutableLongStateOf(0L) }
     var position by remember(item.uri) { mutableLongStateOf(0L) }
     var buffered by remember(item.uri) { mutableLongStateOf(0L) }
@@ -203,7 +214,14 @@ private fun VideoViewer(
     }
 
     DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                firstFrameRendered = true
+            }
+        }
+        player.addListener(listener)
         onDispose {
+            player.removeListener(listener)
             player.release()
         }
     }
@@ -302,6 +320,17 @@ private fun VideoViewer(
         playing = wasPlayingBeforeScrub
     }
 
+    fun toggleFillScreen() {
+        fillScreen = !fillScreen
+        videoPrefs.edit().putBoolean(KEY_VIDEO_FILL_SCREEN, fillScreen).apply()
+    }
+
+    val resizeMode = if (fillScreen) {
+        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    } else {
+        AspectRatioFrameLayout.RESIZE_MODE_FIT
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -315,13 +344,35 @@ private fun VideoViewer(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                     )
                     useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    this.resizeMode = resizeMode
+                    setShutterBackgroundColor(AndroidColor.TRANSPARENT)
+                    setKeepContentOnPlayerReset(true)
                     this.player = player
                 }
             },
-            update = { it.player = player },
+            update = {
+                it.player = player
+                it.resizeMode = resizeMode
+                it.setShutterBackgroundColor(AndroidColor.TRANSPARENT)
+                it.setKeepContentOnPlayerReset(true)
+            },
             modifier = Modifier.fillMaxSize(),
         )
+
+        AnimatedVisibility(
+            visible = !firstFrameRendered,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            MediaThumbnail(
+                item = item,
+                contentDescription = item.name,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+                contentScale = if (fillScreen) ContentScale.Crop else ContentScale.Fit,
+            )
+        }
 
         Box(
             modifier = Modifier
@@ -366,11 +417,13 @@ private fun VideoViewer(
             VideoControls(
                 playing = playing,
                 loop = loop,
+                fillScreen = fillScreen,
                 position = (previewSeekPosition ?: position).coerceAtMost(duration.takeIf { it > 0L } ?: position),
                 duration = duration,
                 buffered = buffered,
                 onPlayPause = { playing = !playing },
                 onLoopToggle = { loop = !loop },
+                onFillScreenToggle = ::toggleFillScreen,
                 onSeekStart = { startLiveSeek(it) },
                 onSeekMove = { liveSeekTo(it) },
                 onSeekEnd = { finishLiveSeek() },
@@ -447,11 +500,13 @@ private fun ViewerChrome(
 private fun VideoControls(
     playing: Boolean,
     loop: Boolean,
+    fillScreen: Boolean,
     position: Long,
     duration: Long,
     buffered: Long,
     onPlayPause: () -> Unit,
     onLoopToggle: () -> Unit,
+    onFillScreenToggle: () -> Unit,
     onSeekStart: (Long) -> Unit,
     onSeekMove: (Long) -> Unit,
     onSeekEnd: () -> Unit,
@@ -490,6 +545,15 @@ private fun VideoControls(
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.weight(1f),
             )
+            GlassIconButton(
+                onClick = onFillScreenToggle,
+                selected = fillScreen,
+            ) {
+                Icon(
+                    imageVector = if (fillScreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
+                    contentDescription = if (fillScreen) "适应屏幕" else "填满屏幕",
+                )
+            }
             GlassIconButton(
                 onClick = onLoopToggle,
                 selected = loop,
@@ -613,3 +677,5 @@ private const val SCREEN_SCRUB_RANGE_MS = 5_000L
 private const val LIVE_SEEK_DISPATCH_MS = 16L
 private const val LIVE_SEEK_MIN_DISTANCE_MS = 24L
 private const val NO_PENDING_SEEK = -1L
+private const val VIDEO_PREFS_NAME = "skgproject_video_player"
+private const val KEY_VIDEO_FILL_SCREEN = "video_fill_screen"
