@@ -20,13 +20,11 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -196,9 +194,9 @@ fun HomeScreen(
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 7.dp, top = 3.dp, end = 7.dp, bottom = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
+                contentPadding = PaddingValues(start = 4.dp, top = 2.dp, end = 4.dp, bottom = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 items(albums, key = { it.uri.toString() }) { album ->
                     AlbumTile(album = album, onClick = { onAlbumClick(album) })
@@ -261,8 +259,8 @@ private fun AlbumTile(album: Album, onClick: () -> Unit) {
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0.50f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.54f),
+                            0.46f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.28f),
                         ),
                     ),
                 ),
@@ -271,13 +269,13 @@ private fun AlbumTile(album: Album, onClick: () -> Unit) {
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(76.dp)
-                .blur(18.dp)
+                .height(92.dp)
+                .blur(24.dp)
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Transparent,
-                        0.55f to Color.Black.copy(alpha = 0.36f),
-                        1f to Color.Black.copy(alpha = 0.70f),
+                        0.48f to Color.Black.copy(alpha = 0.32f),
+                        1f to Color.Black.copy(alpha = 0.76f),
                     ),
                 ),
         )
@@ -296,44 +294,6 @@ private fun AlbumTile(album: Album, onClick: () -> Unit) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = mediaSummary(album),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.76f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
-        if (album.items.any { it.isVideo }) {
-            VideoBadge(modifier = Modifier.align(Alignment.TopEnd))
-        }
-    }
-}
-
-@Composable
-private fun VideoBadge(modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.padding(7.dp),
-        shape = CircleShape,
-        color = Color.Black.copy(alpha = 0.52f),
-        contentColor = Color.White,
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.VideoLibrary,
-            contentDescription = null,
-            modifier = Modifier
-                .padding(6.dp)
-                .size(14.dp),
-        )
-    }
-}
-
-private fun mediaSummary(album: Album): String {
-    val videos = album.items.count { it.isVideo }
-    val photos = album.items.size - videos
-    return when {
-        videos == 0 -> "$photos 张照片"
-        photos == 0 -> "$videos 个视频"
-        else -> "$photos 张照片 · $videos 个视频"
     }
 }
